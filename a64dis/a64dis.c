@@ -3,59 +3,90 @@
 
 #include <capstone/capstone.h>
 
-#define MAX_STDIN_BUFFER (1 << 24) // 16 MB
 #define ADDRESS_OF_THE_FIRST_INSTRUCTION (0x80000)
 
-int main(void) {
+int main(int argc, char* argv[]) {
 
-  uint8_t* buffer = (uint8_t*) calloc(sizeof(uint8_t), MAX_STDIN_BUFFER);
+	if (argc != 2) {
+		printf("Usage: a64dis <binfile>\n");
+		return 1;
+	}
 
-  size_t read = fread(buffer, sizeof(uint8_t), MAX_STDIN_BUFFER, stdin);
+	long size = 0;
 
-  if (read == MAX_STDIN_BUFFER) {
-    fprintf(stderr, "stdin input is larger than %u\n", MAX_STDIN_BUFFER);
-    free(buffer);
-    return EXIT_FAILURE;
-  }
+	FILE* fp = fopen(argv[1], "rb");
 
-  printf("size of input: %zu\n", read);
+	if (fp == NULL) {
+		printf("cannot open file\n");
+		return 1;
+	}
 
-  csh capstone_handle;
+	if (fseek(fp, 0, SEEK_END) != 0) {
+		printf("cannot seek end\n");
+		fclose(fp);
+		return 1;
+	}
 
-  if (cs_open(CS_ARCH_ARM64, CS_MODE_ARM, &capstone_handle) != CS_ERR_OK) {
-    return EXIT_FAILURE;
-  }
+	size = ftell(fp);
 
-  cs_option(capstone_handle, CS_OPT_DETAIL, CS_OPT_ON);
+	if (size == -1) {
+		printf("cannot tell\n");
+		fclose(fp);
+		return 1;
+	}
 
-  cs_insn* instructions;
-  size_t count = cs_disasm(capstone_handle, buffer, read, ADDRESS_OF_THE_FIRST_INSTRUCTION, 0, &instructions);
+	if (fseek(fp, 0, SEEK_SET) != 0) {
+		printf("cannot seek set\n");
+		fclose(fp);
+		return 1;
+	}
 
-  if (count > 0) {
+	void* buffer = malloc(sizeof(uint8_t) * size);
 
-    printf("# of instructions: %zu\n", count);
+	size_t read = fread(buffer, sizeof(uint8_t), size, fp);
 
-    for (size_t i = 0; i < count; i++) {
+	fclose(fp);
 
-      printf("0x%"PRIx64":\t%s\t\t%s\n", 
-          instructions[i].address, 
-          instructions[i].mnemonic,
-          instructions[i].op_str);
+	if (read != size) {
+		printf("file size and amount read is different\n");
+		free(buffer);
+		return 1;
+	}
 
-    }
+	csh capstone_handle;
 
-    cs_free(instructions, count);
+	if (cs_open(CS_ARCH_ARM64, CS_MODE_ARM, &capstone_handle) != CS_ERR_OK) {
+		return EXIT_FAILURE;
+	}
 
-  } else {
+	cs_option(capstone_handle, CS_OPT_DETAIL, CS_OPT_ON);
 
-    fprintf(stderr, "Failed to disassemble!\n");
+	cs_insn* instructions;
+	size_t count = cs_disasm(capstone_handle, buffer, read, ADDRESS_OF_THE_FIRST_INSTRUCTION, 0, &instructions);
 
-  }
+	if (count > 0) {
 
-  cs_close(&capstone_handle);
+		for (size_t i = 0; i < count; i++) {
 
-  free(buffer);
+			printf("0x%"PRIx64":\t%s\t\t%s\n", 
+					instructions[i].address, 
+					instructions[i].mnemonic,
+					instructions[i].op_str);
 
-  return EXIT_SUCCESS;
+		}
+
+		cs_free(instructions, count);
+
+	} else {
+
+		fprintf(stderr, "Failed to disassemble!\n");
+
+	}
+
+	cs_close(&capstone_handle);
+
+	free(buffer);
+
+	return EXIT_SUCCESS;
 
 }
